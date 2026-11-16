@@ -56,7 +56,7 @@ const DAVILA = 'https://github.com/davila7/claude-code-templates/tree/main/cli-t
 const KNOWN: Record<string, Known> = {
   'read-digest': {
     title: 'Read Digest',
-    what: 'Big files and connector results are read by Haiku first. Claude gets short notes, and a pane shows each hand-off',
+    what: 'Big files and connector results are read by Sonnet first. Claude gets short notes, and a pane shows each hand-off',
     group: 'save',
     pane: true,
     hide: true,

@@ -3,10 +3,10 @@ export type CardPart = 'file' | 'connector'
 /** The tool the hand-off came from: a Read, a Bash read (cat, grep, curl), or a connector tool. */
 export type CardTool = 'Read' | 'Bash' | 'connector'
 
-/** working: Haiku is reading. done: Claude got the notes. failed: the plain (or trimmed) result went on. kept: notes from earlier, no Haiku call. */
+/** working: Sonnet is reading. done: Claude got the notes. failed: the plain (or trimmed) result went on. kept: notes from earlier, no Sonnet call. */
 export type CardPhase = 'working' | 'done' | 'failed' | 'kept'
 
-/** One hand-off to Haiku, as the pane draws it. */
+/** One hand-off to Sonnet, as the pane draws it. */
 export type Card = {
   id: string
   /** The chat it belongs to; the pane draws only its own chat's cards. */
@@ -21,10 +21,10 @@ export type Card = {
   /** Tokens Claude would have read, and what it read instead (null until known). */
   before: number
   after: number | null
-  /** Haiku requests in all, and how many have answered so far. */
+  /** Sonnet requests in all, and how many have answered so far. */
   requests: number
   answered: number
-  /** List price of the Haiku requests; null when unknown. */
+  /** List price of the Sonnet requests; null when unknown. */
   usd: number | null
   startedAt: number
   endedAt: number

@@ -2,13 +2,13 @@ import type { EngineInterface, ModelUsage, Register, SessionMessage } from 'clau
 
 import type { Card, CardPart, CardTool } from '../types'
 
-// Read Digest: anything big that comes into the chat from outside is read by Haiku first, and Claude gets
+// Read Digest: anything big that comes into the chat from outside is read by Sonnet first, and Claude gets
 // short notes and a path to the full thing. Two parts, one switch:
 //   file       a whole Read of a big text file or PDF (was Read Router)
 //   connector  a big connector (MCP) result (was Connector Reader)
 // The real tool always runs first (a big PDF is the one exception: it is read before core, only when the
 // permission check says the Read would run unasked). Anything that fails passes the normal result on.
-// A side pane shows each hand-off to Haiku as it happens: what went in, what came back, what it cost.
+// A side pane shows each hand-off to Sonnet as it happens: what went in, what came back, what it cost.
 //
 // The web part (repeat WebFetch, from claude-code-templates) was removed on 2026-11-03. It is archived in
 // ~/.claude/mods-archive/input-router-web-part-2026-11-03/. Everything here is Ben AI's own code.
@@ -20,11 +20,11 @@ const TITLE = 'Read Digest'
 type Part = CardPart
 const PARTS: readonly Part[] = ['file', 'connector']
 
-const MODEL = 'claude-haiku-5-5'
-const MODEL_ALIAS = 'haiku'
-// Every Haiku request stays under 100k tokens, Haiku's cheap tier. JSON and logs run about 2 characters a
-// token, not 4 (Connector Reader sent 260k characters and Haiku counted 107,756 tokens), so a request is
-// kept under this many characters.
+const MODEL = 'claude-sonnet-5-5'
+const MODEL_ALIAS = 'sonnet'
+// Every helper request stays under 100k tokens, so big inputs are split into parts. JSON and logs run about
+// 2 characters a token, not 4 (Connector Reader sent 260k characters and the helper counted 107,756 tokens),
+// so a request is kept under this many characters.
 const PROMPT_MAX_CHARS = 150_000
 
 // ---------- file part ----------
@@ -62,7 +62,7 @@ const MIN_CHARS = 16_000
 // A trimmed result this small goes to Claude as it is, with no helper call (about 2k tokens).
 const TRIM_ENOUGH_CHARS = 8_000
 // A trim-only reply may cut text values past this many characters, but only when the cut removes at most
-// CUT_SHARE of the trimmed result. Past that the content lives in the long text, so Haiku reads it whole.
+// CUT_SHARE of the trimmed result. Past that the content lives in the long text, so Sonnet reads it whole.
 const STRING_CAP = 1_200
 const CUT_SHARE = 0.2
 // One helper call reads at most this much of the result; the task context and rules fit in the rest of
@@ -73,7 +73,7 @@ const MAX_CHUNKS = 6
 // short. A cap costs nothing unless it is used.
 const THINK_TOKENS = 4_000
 const HELPER_MAX_TOKENS = 8_000 + THINK_TOKENS
-// The person's request goes to Haiku whole up to this size, cut from the middle past it. Claude's words before
+// The person's request goes to Sonnet whole up to this size, cut from the middle past it. Claude's words before
 // the call, and a tool's arguments, are cut at PROMPT_CHARS.
 const REQUEST_CHARS = 12_000
 const PROMPT_CHARS = 2_000
@@ -90,7 +90,7 @@ const DROP_KEY =
   /^(avatar|avatar_url|.+_avatar_url|avatar_.+|image_url|.+_image_url|thumbnail|thumbnail_url|.+_thumbnail_url|icon|icon_url|.+_icon_url|cover_image(_url)?|banner(_url)?|logo_url|html|.+_html|html_.+|rich_text|rich_text_.+|.+_rich_text|tiptap_.+|.+_tiptap_.+|body_for_editor|__typename|etag|_links|_meta|color|.+_color|emoji|display_format|display_locations|placeholder)$/i
 
 // Paging and count fields. Code copies them into the reply word for word, so nobody has to work out
-// "page X of Y" (Haiku once wrote "Page 1 of 5" for page_count: 5, the number of records on the page).
+// "page X of Y" (the helper once wrote "Page 1 of 5" for page_count: 5, the number of records on the page).
 const PAGING_KEY =
   /^(page|page_number|current_page|per_page|page_size|page_count|pages|total_pages|count|total|total_count|has_more|has_next|has_next_page|next_page|next_page_token|next_cursor|cursor|offset|limit)$/i
 const PAGING_HOLDER = /^(meta|pagination|paging|page_info|pageInfo)$/
@@ -104,8 +104,8 @@ const OVER_CAP = 'exceeds maximum allowed tokens'
 const NOTE_MAX = 12_000
 
 // ---------- pane ----------
-const PANE = 'haiku'
-const PANE_TITLE = 'Haiku hand-offs'
+const PANE = 'read-digest'
+const PANE_TITLE = 'Sonnet hand-offs'
 const CARDS = { plugin: 'read-digest', key: 'cards' } as const
 const OPEN = { plugin: 'read-digest', key: 'open' } as const
 const OFF = { plugin: 'read-digest', key: 'off' } as const
@@ -114,9 +114,9 @@ const CARDS_ALL = 150
 // Notes kept per card, and drawn when one is open (one drawing draws at most 100,000 characters).
 const CARD_NOTES_MAX = 40_000
 const DRAW_NOTES_MAX = 20_000
-// The Haiku colour: a mid teal that reads on white and on a dark pane.
-const HAIKU = '#139c8a'
-const HAIKU_DARK = '#0b5a4f'
+// The pane colour: a mid teal that reads on white and on a dark pane.
+const TEAL = '#139c8a'
+const TEAL_DARK = '#0b5a4f'
 const GOOD = '#22a55b'
 const BAD = '#e5484d'
 // A ranged Read of a file with notes this many lines or more gets a one-line reminder; exact reads stay quiet.
@@ -363,9 +363,9 @@ function clean(text: string) {
 
 type Asked = Awaited<ReturnType<EngineInterface['model']['complete']>>
 
-// One Haiku request at medium effort (was low: fewer copying and relevance mistakes, still cheap). The full id first;
+// One Sonnet request at medium effort (was Sonnet until v0.4). The full id first;
 // if it is refused (an allowlist, or no effort on this model), the
-// alias resolves to the session's Haiku.
+// alias resolves to the session's Sonnet.
 async function ask($: EngineInterface, system: string, prompt: string, maxTokens: number, signal: AbortSignal | undefined) {
   const request = { prompt, system, maxTokens, timeoutMs: CALL_MS }
   const opts = signal ? { signal } : undefined
@@ -443,11 +443,11 @@ async function status($: EngineInterface, text: string | undefined) {
 let cards: Card[] = []
 let cardN = 0
 
-// Haiku 5.5 list prices per token, the same table Savings Ledger uses (claude-api skill, model-migration.md,
-// read 2026-11-02). Each request is priced on its own tier. No usage means no price, not a guess.
-function haikuUsd(calls: readonly Call[]): number | null {
+// Sonnet 5.5 list prices per token ($2 in, $10 out per million), the same table Savings Ledger uses.
+// No usage means no price, not a guess.
+function helperUsd(calls: readonly Call[]): number | null {
   if (calls.length === 0 || calls.every(c => c.in === 0 && c.out === 0)) return null
-  return calls.reduce((s, c) => s + (c.in <= 100_000 ? c.in * 0.1e-6 + c.out * 0.5e-6 : c.in * 0.5e-6 + c.out * 2.5e-6), 0)
+  return calls.reduce((s, c) => s + c.in * 2e-6 + c.out * 10e-6, 0)
 }
 
 async function drawCards($: EngineInterface) {
@@ -493,7 +493,7 @@ async function showPane($: EngineInterface, why: string) {
   return opened
 }
 
-// A new card. Hand-offs to Haiku open the pane (unless it is hidden); kept notes only add a card.
+// A new card. Hand-offs to Sonnet open the pane (unless it is hidden); kept notes only add a card.
 async function newCard($: EngineInterface, c: Omit<Card, 'id' | 'session' | 'startedAt' | 'endedAt' | 'answered' | 'usd' | 'notes' | 'detail' | 'full' | 'after'> & Partial<Card>) {
   const now = await $.clock.now().catch(() => 0)
   const session = await sessionId($)
@@ -520,7 +520,7 @@ async function setCard($: EngineInterface, card: Card | null | undefined, patch:
 }
 
 // Live line while the requests run side by side.
-const reading = (answered: number, of: number) => (of > 1 ? `Haiku is reading ${of} parts: ${answered} of ${of} done` : 'Haiku is reading')
+const reading = (answered: number, of: number) => (of > 1 ? `Sonnet is reading ${of} parts: ${answered} of ${of} done` : 'Sonnet is reading')
 
 // ============================================================================
 // File part (was Read Router)
@@ -533,7 +533,7 @@ const FILE_SYSTEM = [
 ].join(' ')
 
 // The notes body is kept; the header and footer around it are written when they are served, so they can say
-// whether Haiku wrote them for this task or earlier.
+// whether Sonnet wrote them for this task or earlier.
 type Notes = {
   body: string
   about: string
@@ -707,9 +707,9 @@ async function textSource($: EngineInterface, path: string, bytes: number): Prom
     kind: 'text',
     about: gap
       ? `Text file, ${fmt(total)} lines. ${gap} Refs like L120-L140 are line numbers in the real file.`
-      : `Text file, ${fmt(total)} lines. Haiku read all ${fmt(total)} lines. Refs like L120-L140 are line numbers in the real file.`,
-    covers: gap ? 'These notes cover every line Haiku read' : 'These notes cover the whole file',
-    exact: `Read exact lines of ${path} (offset and limit, for example offset 120, limit 40) only when you must quote exact text, or right before you Edit or Write this file${gap ? ', or for the lines Haiku skipped' : ''}. A range ${SMALL_RANGE}, passes through as exact text.`,
+      : `Text file, ${fmt(total)} lines. Sonnet read all ${fmt(total)} lines. Refs like L120-L140 are line numbers in the real file.`,
+    covers: gap ? 'These notes cover every line Sonnet read' : 'These notes cover the whole file',
+    exact: `Read exact lines of ${path} (offset and limit, for example offset 120, limit 40) only when you must quote exact text, or right before you Edit or Write this file${gap ? ', or for the lines Sonnet skipped' : ''}. A range ${SMALL_RANGE}, passes through as exact text.`,
     full: path,
     chunks: chunk(lines),
   }
@@ -798,7 +798,7 @@ async function pdfSource($: EngineInterface, path: string, pagesArg: string | un
     path,
     kind: 'pdf',
     about: `PDF, pages ${range.first}-${range.last} of ${total}.${where}${fitted.gap ? ` ${fitted.gap}` : ''} Refs: p.12 is the PDF page${wrote ? ', L340 is the line in that text file' : ''}.`,
-    covers: fitted.gap ? 'These notes cover every line Haiku read' : `These notes cover pages ${range.first}-${range.last}`,
+    covers: fitted.gap ? 'These notes cover every line Sonnet read' : `These notes cover pages ${range.first}-${range.last}`,
     exact: wrote
       ? `Read exact text only when you must quote it: Read ${sidecar} with offset and limit, or Read ${path} with pages (${ZOOM_PAGES} pages or fewer pass through untouched).`
       : `Read exact text only when you must quote it: Read ${path} with pages (${ZOOM_PAGES} pages or fewer pass through untouched).`,
@@ -866,7 +866,7 @@ async function makeNotes($: EngineInterface, src: Source, before: number, label:
       calls.push(usageOf(r))
       if (!r.isAnswered || !r.text.trim()) {
         await log($, 'file', 'helper', `part ${i + 1} of ${of} for ${src.path}: ${r.isAnswered ? 'empty' : r.reason}`)
-        await setCard($, card, { phase: 'failed', state: `Haiku failed, so Claude got the plain ${plainNoun}`, usd: haikuUsd(calls) })
+        await setCard($, card, { phase: 'failed', state: `Sonnet failed, so Claude got the plain ${plainNoun}`, usd: helperUsd(calls) })
         return null
       }
       const part = src.chunks[i]!
@@ -879,7 +879,7 @@ async function makeNotes($: EngineInterface, src: Source, before: number, label:
     const helper = helperOf(answers[0]?.model ?? MODEL, calls)
     const notes: Notes = { body: bodies.join('\n\n'), about: src.about, covers: src.covers, exact: src.exact, before, helper, detail: null, label, full: src.full, ...(src.noun && { noun: src.noun }) }
     const text = frame(src.path, notes, 'fresh')
-    await setCard($, card, { phase: 'done', state: 'Done. Claude got these notes', after: tokens(text), notes: text, usd: haikuUsd(calls), full: src.full })
+    await setCard($, card, { phase: 'done', state: 'Done. Claude got these notes', after: tokens(text), notes: text, usd: helperUsd(calls), full: src.full })
     lastCard.set(src.path, card)
     return notes
   } finally {
@@ -896,10 +896,10 @@ function frame(path: string, n: Notes, how: How) {
   const noun = output ? 'output' : 'file'
   const who =
     how === 'fresh'
-      ? `Haiku (a helper model) read this ${noun} for this task and wrote these notes.`
+      ? `Sonnet (a helper model) read this ${noun} for this task and wrote these notes.`
       : how === 'kept'
-        ? `Haiku (a helper model) wrote these notes earlier in this chat. The ${noun} has not changed since.`
-        : `Haiku (a helper model) wrote these notes in an earlier chat. The ${noun} has not changed since.`
+        ? `Sonnet (a helper model) wrote these notes earlier in this chat. The ${noun} has not changed since.`
+        : `Sonnet (a helper model) wrote these notes in an earlier chat. The ${noun} has not changed since.`
   const again = output ? 'run the command again or read the saved output' : 'read the file again'
   const covers = `${n.covers}${how === 'fresh' ? ' and were written for this task' : ''}. You do not need to ${again} to check them.`
   const subject = output ? `the output of \`${n.label}\`` : path
@@ -910,7 +910,7 @@ function frame(path: string, n: Notes, how: How) {
   return [`[${TITLE}] Notes on ${subject}. ${who}`, n.about, '', n.body, '', covers, n.exact, full].join('\n')
 }
 
-// Notes are kept on disk by path, change time and size, so a reopened chat does not pay Haiku again. The format
+// Notes are kept on disk by path, change time and size, so a reopened chat does not pay Sonnet again. The format
 // version is in the name: notes written before the 2026-11-03 wording are skipped (left on disk), never served.
 const NOTES_V = 2
 const notesFile = (path: string, key: string) => `${claudeDir}/mods-logs/${NAME}/notes/${slug(path)}-${hash(`v${NOTES_V}|${key}`)}.json`
@@ -1029,14 +1029,14 @@ async function recordFile($: EngineInterface, e: { tool_use_id?: string; agentId
       after,
       requests: 0,
       phase: 'kept',
-      state: how === 'kept' ? 'Notes from earlier in this chat. No Haiku call' : 'Notes kept on disk from an earlier chat. No Haiku call',
+      state: how === 'kept' ? 'Notes from earlier in this chat. No Sonnet call' : 'Notes kept on disk from an earlier chat. No Sonnet call',
       notes: text,
       detail: notes.detail,
       full: notes.full,
     })
   }
   noted.set(notedKey(await sessionId($), e.agentId, e.file_path), e.tool_use_id || 'earlier')
-  await remember($, { part: 'file', label: notes.noun === 'output' ? notes.label : baseName(e.file_path), before: notes.before, after, how: fresh ? 'haiku' : 'kept notes' })
+  await remember($, { part: 'file', label: notes.noun === 'output' ? notes.label : baseName(e.file_path), before: notes.before, after, how: fresh ? 'sonnet' : 'kept notes' })
   await log($, 'file', 'notes', `${e.file_path} ${fmt(notes.before)} -> ${fmt(after)} tokens${fresh ? '' : ` (${how})`}`)
   return text
 }
@@ -1070,7 +1070,7 @@ function coverLine(path: string, share: number) {
   return `[${TITLE}] You have now read ${pct(share)} of ${path} in pieces. A read of ${EDIT_LINES} lines or more of it now returns its notes. Read ranges ${SMALL_RANGE}, only to quote exact text or right before an Edit.`
 }
 
-// The file's notes for this task (kept in memory or on disk, or fresh from Haiku), in place of `before` tokens of
+// The file's notes for this task (kept in memory or on disk, or fresh from Sonnet), in place of `before` tokens of
 // raw text: a whole read, a piece over the limit, or a piece past the piece counter. null: the read passes as it
 // ran (a helper failure, a binary file, or notes that would not be shorter than the text).
 async function fileNotes(
@@ -1106,7 +1106,7 @@ async function fileNotes(
   return recordFile($, { ...e, tool }, notes, got.how)
 }
 
-// A Read whose lines are the whole file: notes in place of the text (kept, on disk, or fresh from Haiku).
+// A Read whose lines are the whole file: notes in place of the text (kept, on disk, or fresh from Sonnet).
 async function wholeRead<T extends ToolOut>($: EngineInterface, e: { tool_use_id?: string; agentId?: string; file_path: string }, ran: T, filePath: string, text: string, kind: string, signal: AbortSignal) {
   const before = tokens(text)
   if (before < MIN_TOKENS) {
@@ -1421,7 +1421,7 @@ function clip(text: string, max: number) {
   return s.length > max ? `${s.slice(0, max)} ...` : s
 }
 
-// Long text cut from the middle, so both the start of a request and its last lines reach Haiku.
+// Long text cut from the middle, so both the start of a request and its last lines reach Sonnet.
 function middle(text: string, max: number) {
   const s = text.replace(/<system-reminder>[\s\S]*?<\/system-reminder>/g, ' ').replace(/\s+/g, ' ').trim()
   if (s.length <= max) return s
@@ -1589,7 +1589,7 @@ async function connector(
   }
 
   // Plain code first: drop fields nobody uses, empty values and pictures written as text. No text is cut here,
-  // so the path choice and Haiku both see every long text whole.
+  // so the path choice and Sonnet both see every long text whole.
   const words = wordsOf(`${task.user} ${task.assistant} ${argsText}`)
   let t = trim(words, Infinity)
   const trimmedData = data === undefined ? undefined : trimValue(data, t)
@@ -1619,7 +1619,7 @@ async function connector(
     ? `a JSON list of ${blocks} text blocks. The data is in the text of each block (jq -r '.[].text')${data === undefined ? '' : `, and it is JSON, ${outline(data)}`}`
     : kind
   // The saved file is for a field the reply does not have, never for checking the reply.
-  const whereHaiku = `The full result is saved here: ${file} (${shape}). Use it only for a field this note does not list, not to re-check the note (jq or python through Bash).`
+  const whereSonnet = `The full result is saved here: ${file} (${shape}). Use it only for a field this note does not list, not to re-check the note (jq or python through Bash).`
   const whereTrim = `The full result is saved here: ${file} (${shape}). Nothing below is summarised: only the fields named above were left out. Use the file only for one of those fields (jq or python through Bash).`
   const steps = [
     'Empty values were dropped.',
@@ -1641,7 +1641,7 @@ async function connector(
       trimmed,
     ].join('\n')
   } else {
-    await status($, `${TITLE}: Haiku is reading ${short} (about ${fmt(tokens(trimmed))} tokens)`)
+    await status($, `${TITLE}: Sonnet is reading ${short} (about ${fmt(tokens(trimmed))} tokens)`)
     const parts = chunks(trimmedData, trimmed)
     const asked = Math.min(parts.length, MAX_CHUNKS)
     const card = await newCard($, { part: 'connector', tool: shown?.tool ?? 'connector', label: short, where: shown?.where ?? tool, before, requests: asked, phase: 'working', state: reading(0, asked), full: file })
@@ -1658,12 +1658,12 @@ async function connector(
       },
     )
     helper = got2.helper
-    await setCard($, card, { usd: haikuUsd(helper.calls) })
+    await setCard($, card, { usd: helperUsd(helper.calls) })
     if ('error' in got2) {
       await log($, 'connector', 'helper failed', `${tool}: ${got2.error}`)
       if (note || trimmed.length >= raw.length) {
         await status($, undefined)
-        await setCard($, card, { phase: 'failed', state: 'Haiku failed, so Claude got the plain result' })
+        await setCard($, card, { phase: 'failed', state: 'Sonnet failed, so Claude got the plain result' })
         return ran
       }
       how = 'trim, helper failed'
@@ -1674,12 +1674,12 @@ async function connector(
         trimmed,
       ].join('\n')
     } else {
-      how = 'haiku'
+      how = 'sonnet'
       const paging = pagingOf(trimmedData ?? data)
       const whole = parts.length <= MAX_CHUNKS ? 'read the whole result for this task' : `read the first ${MAX_CHUNKS} of ${parts.length} parts for this task`
       reply = [
-        `[${TITLE}] ${tool}: this result was about ${fmt(full)} tokens, so Haiku (a helper model) ${whole} and kept what the task needs. This note is the answer to use: you do not need to check it against the saved file.${coreSaved} ${removedLine}`.trim(),
-        whereHaiku,
+        `[${TITLE}] ${tool}: this result was about ${fmt(full)} tokens, so Sonnet (a helper model) ${whole} and kept what the task needs. This note is the answer to use: you do not need to check it against the saved file.${coreSaved} ${removedLine}`.trim(),
+        whereSonnet,
         ...(paging ? [paging] : []),
         '',
         got2.text,
@@ -1729,8 +1729,8 @@ async function connector(
   await remember($, { part: 'connector', label: short, before, after, how: note ? `${how}, over the core cap` : how })
   await status($, `${TITLE}: ${short} ${fmt(before)} to ${fmt(after)} tokens`)
   await setCard($, held.card, {
-    phase: how === 'haiku' ? 'done' : 'failed',
-    state: how === 'haiku' ? 'Done. Claude got this note' : 'Haiku failed, so Claude got the trimmed result',
+    phase: how === 'sonnet' ? 'done' : 'failed',
+    state: how === 'sonnet' ? 'Done. Claude got this note' : 'Sonnet failed, so Claude got the trimmed result',
     after,
     notes: reply,
     detail,
@@ -1754,8 +1754,8 @@ const PART_WORDS: Record<string, Part> = {
 const REMOVED = new Set(['web', 'webfetch', 'fetch'])
 
 const ABOUT: Record<Part, string> = {
-  file: `a whole Read over ~${fmt(MIN_TOKENS)} tokens, a PDF over ${ZOOM_PAGES} pages, or a Bash read (cat, sed, grep, curl and the like) over ~${fmt(MIN_TOKENS)} tokens gets Haiku notes with line numbers`,
-  connector: `a connector result over ~${fmt(MIN_CHARS / 4)} tokens is trimmed by code, then read by Haiku if still over ~${fmt(TRIM_ENOUGH_CHARS / 4)}`,
+  file: `a whole Read over ~${fmt(MIN_TOKENS)} tokens, a PDF over ${ZOOM_PAGES} pages, or a Bash read (cat, sed, grep, curl and the like) over ~${fmt(MIN_TOKENS)} tokens gets Sonnet notes with line numbers`,
+  connector: `a connector result over ~${fmt(MIN_CHARS / 4)} tokens is trimmed by code, then read by Sonnet if still over ~${fmt(TRIM_ENOUGH_CHARS / 4)}`,
 }
 
 async function statusText($: EngineInterface) {
@@ -1776,7 +1776,7 @@ async function statusText($: EngineInterface) {
   }
   lines.push(`- /read-digest full: ${fullNext.has(sid) ? 'armed. The next big input comes through whole.' : 'lets the next big input through whole, once.'}`)
   lines.push(
-    `- Pane: ${globalHidden ? `hidden in every chat ("${NAME}:hidden": true in switches.json)` : hiddenIn.has(sid) ? 'hidden in this chat. /read-digest pane shows it' : 'opens when Haiku reads something. /read-digest pane opens it now'}.`,
+    `- Pane: ${globalHidden ? `hidden in every chat ("${NAME}:hidden": true in switches.json)` : hiddenIn.has(sid) ? 'hidden in this chat. /read-digest pane shows it' : 'opens when Sonnet reads something. /read-digest pane opens it now'}.`,
   )
   if (list.length) lines.push(`- Recent: ${list.slice(-RECENT_MAX).reverse().map(d => `${d.label} ${fmt(d.before)} to ${fmt(d.after)} (${d.part}, ${d.how})`).join('; ')}.`)
   lines.push(`- Ledger: ${claudeDir}/mods-logs/savings.jsonl`)
@@ -2047,9 +2047,9 @@ function outputSource(saved: string, cmd: string, text: string): Source {
     path: saved,
     kind: 'text',
     title: `Output of the shell command \`${clip(cmd, 400)}\`, saved at ${saved}`,
-    about: `Command output, ${fmt(all.length)} lines. ${gap || `Haiku read all ${fmt(all.length)} lines.`} Refs like L120-L140 are line numbers in the saved output.`,
-    covers: gap ? 'These notes cover every line Haiku read' : 'These notes cover the whole output',
-    exact: `The full output is saved at ${saved}. Read exact lines of it (Read with offset and limit) only when you must quote exact text${gap ? ', or for the lines Haiku skipped' : ''}. Short ranges like that pass through untouched.`,
+    about: `Command output, ${fmt(all.length)} lines. ${gap || `Sonnet read all ${fmt(all.length)} lines.`} Refs like L120-L140 are line numbers in the saved output.`,
+    covers: gap ? 'These notes cover every line Sonnet read' : 'These notes cover the whole output',
+    exact: `The full output is saved at ${saved}. Read exact lines of it (Read with offset and limit) only when you must quote exact text${gap ? ', or for the lines Sonnet skipped' : ''}. Short ranges like that pass through untouched.`,
     full: saved,
     chunks: chunk(kept),
     label,
@@ -2131,7 +2131,7 @@ async function bashPart(
     return ran
   }
 
-  // JSON (curl of an API): the connector part's trim, then Haiku.
+  // JSON (curl of an API): the connector part's trim, then Sonnet.
   if (parseOne(text) !== undefined) {
     if (!(await partOn($, 'connector'))) {
       await log($, 'connector', 'pass', `Bash JSON output left alone, the connector part is off: ${clip(cmd, 200)}`)
@@ -2181,9 +2181,9 @@ async function bashPart(
 
 const MASCOT_PX = 56
 
-// The Haiku reader: a round teal reader with glasses and a sprout, holding a page. Smooth shapes, not pixel
+// The Sonnet reader: a round teal reader with glasses and a sprout, holding a page. Smooth shapes, not pixel
 // rects, so it never reads as Helper Desk's crab. It moves (eyes scan, page bobs, sprout sways) only while
-// Haiku is working; at rest it stands still.
+// Sonnet is working; at rest it stands still.
 function mascotSvg(working: boolean) {
   const motion = working
     ? `<style>
@@ -2199,15 +2199,15 @@ function mascotSvg(working: boolean) {
 </style>`
     : ''
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="${MASCOT_PX}" height="${MASCOT_PX}">${motion}
-<g class="sp"><path d="M32 13 C31 9 28 6 24 6 C25 10 28 12 32 13 Z" fill="${HAIKU}"/><path d="M32 13 C33 8 37 5 41 6 C39 10 36 12 32 13 Z" fill="${HAIKU_DARK}"/><rect x="31.2" y="12" width="1.6" height="5" rx=".8" fill="${HAIKU_DARK}"/></g>
-<ellipse cx="25" cy="58.5" rx="5" ry="2.6" fill="${HAIKU_DARK}"/><ellipse cx="39" cy="58.5" rx="5" ry="2.6" fill="${HAIKU_DARK}"/>
-<circle cx="32" cy="35" r="20" fill="${HAIKU}"/>
-<circle cx="24.5" cy="30" r="6.2" fill="#ffffff" stroke="${HAIKU_DARK}" stroke-width="2.2"/><circle cx="39.5" cy="30" r="6.2" fill="#ffffff" stroke="${HAIKU_DARK}" stroke-width="2.2"/>
-<path d="M30.7 30 Q32 28.6 33.3 30" fill="none" stroke="${HAIKU_DARK}" stroke-width="2"/>
+<g class="sp"><path d="M32 13 C31 9 28 6 24 6 C25 10 28 12 32 13 Z" fill="${TEAL}"/><path d="M32 13 C33 8 37 5 41 6 C39 10 36 12 32 13 Z" fill="${TEAL_DARK}"/><rect x="31.2" y="12" width="1.6" height="5" rx=".8" fill="${TEAL_DARK}"/></g>
+<ellipse cx="25" cy="58.5" rx="5" ry="2.6" fill="${TEAL_DARK}"/><ellipse cx="39" cy="58.5" rx="5" ry="2.6" fill="${TEAL_DARK}"/>
+<circle cx="32" cy="35" r="20" fill="${TEAL}"/>
+<circle cx="24.5" cy="30" r="6.2" fill="#ffffff" stroke="${TEAL_DARK}" stroke-width="2.2"/><circle cx="39.5" cy="30" r="6.2" fill="#ffffff" stroke="${TEAL_DARK}" stroke-width="2.2"/>
+<path d="M30.7 30 Q32 28.6 33.3 30" fill="none" stroke="${TEAL_DARK}" stroke-width="2"/>
 <g class="eye"><circle cx="24.5" cy="31" r="2.2" fill="#10302b"/><circle cx="39.5" cy="31" r="2.2" fill="#10302b"/></g>
-<g class="pg"><rect x="17" y="40" width="30" height="17" rx="2.2" fill="#ffffff" stroke="${HAIKU_DARK}" stroke-width="1.6"/>
-<rect class="ln" x="21" y="44" width="22" height="2" rx="1" fill="${HAIKU}" opacity=".6"/><rect class="ln l2" x="21" y="48" width="18" height="2" rx="1" fill="${HAIKU}" opacity=".6"/><rect class="ln l3" x="21" y="52" width="20" height="2" rx="1" fill="${HAIKU}" opacity=".6"/>
-<circle cx="17.5" cy="48" r="3.2" fill="${HAIKU_DARK}"/><circle cx="46.5" cy="48" r="3.2" fill="${HAIKU_DARK}"/></g>
+<g class="pg"><rect x="17" y="40" width="30" height="17" rx="2.2" fill="#ffffff" stroke="${TEAL_DARK}" stroke-width="1.6"/>
+<rect class="ln" x="21" y="44" width="22" height="2" rx="1" fill="${TEAL}" opacity=".6"/><rect class="ln l2" x="21" y="48" width="18" height="2" rx="1" fill="${TEAL}" opacity=".6"/><rect class="ln l3" x="21" y="52" width="20" height="2" rx="1" fill="${TEAL}" opacity=".6"/>
+<circle cx="17.5" cy="48" r="3.2" fill="${TEAL_DARK}"/><circle cx="46.5" cy="48" r="3.2" fill="${TEAL_DARK}"/></g>
 </svg>`
 }
 
@@ -2233,7 +2233,7 @@ export const register: Register = on => {
     try {
       await $.command.register({
         name: 'read-digest',
-        description: 'Read Digest. No argument: what it did in this chat. full: let the next big input through whole. off/on file|connector. pane: show the Haiku pane',
+        description: 'Read Digest. No argument: what it did in this chat. full: let the next big input through whole. off/on file|connector. pane: show the Sonnet pane',
         argumentHint: '[full | pane | off <file|connector> | on <file|connector>]',
         immediate: true,
       })
@@ -2446,17 +2446,17 @@ export const register: Register = on => {
     const after = list.reduce((s, c) => s + (c.after ?? 0), 0)
     const usd = handed.some(c => c.usd !== null) ? handed.reduce((s, c) => s + (c.usd ?? 0), 0) : null
     const summary = list.length
-      ? [`${list.length} in this chat`, after ? `${fmt(before)} to ${fmt(after)} tokens` : '', handed.length ? `Haiku ${usdText(usd)}` : ''].filter(Boolean).join(' · ')
-      : 'Nothing handed to Haiku yet'
+      ? [`${list.length} in this chat`, after ? `${fmt(before)} to ${fmt(after)} tokens` : '', handed.length ? `Sonnet ${usdText(usd)}` : ''].filter(Boolean).join(' · ')
+      : 'Nothing handed to Sonnet yet'
 
     const mascot = Svg ? (
       <Box key="mascot" width={9} flexShrink={0}>
-        <Svg source={mascotSvg(working)} alt={working ? 'Haiku reader, teal, reading' : 'Haiku reader, teal, resting'} width={MASCOT_PX} height={MASCOT_PX} />
+        <Svg source={mascotSvg(working)} alt={working ? 'Sonnet reader, teal, reading' : 'Sonnet reader, teal, resting'} width={MASCOT_PX} height={MASCOT_PX} />
       </Box>
     ) : (
       <Box key="mascot" width={7} flexShrink={0} flexDirection="column">
-        <Text color={HAIKU}>{working ? '(o_o)' : '(-_-)'}</Text>
-        <Text color={HAIKU}>{' [≡] '}</Text>
+        <Text color={TEAL}>{working ? '(o_o)' : '(-_-)'}</Text>
+        <Text color={TEAL}>{' [≡] '}</Text>
       </Box>
     )
 
@@ -2464,12 +2464,12 @@ export const register: Register = on => {
       const live = c.phase === 'working'
       const isOpen = openId === c.id
       const mark = live ? '●' : c.phase === 'done' ? '✓' : c.phase === 'failed' ? '✗' : '↺'
-      const markColor = live ? HAIKU : c.phase === 'failed' ? BAD : c.phase === 'done' ? GOOD : undefined
-      const stateColor = live ? HAIKU : c.phase === 'failed' ? BAD : c.phase === 'done' ? GOOD : undefined
+      const markColor = live ? TEAL : c.phase === 'failed' ? BAD : c.phase === 'done' ? GOOD : undefined
+      const stateColor = live ? TEAL : c.phase === 'failed' ? BAD : c.phase === 'done' ? GOOD : undefined
       const secs = c.endedAt ? Math.max(0, Math.round((c.endedAt - c.startedAt) / 1000)) : 0
       const numbers = [
         c.after === null ? `${fmt(c.before)} tokens in` : `${fmt(c.before)} to ${fmt(c.after)} tokens`,
-        c.requests ? `${c.requests} Haiku request${c.requests === 1 ? '' : 's'} · ${usdText(c.usd)}` : 'no Haiku call',
+        c.requests ? `${c.requests} Sonnet request${c.requests === 1 ? '' : 's'} · ${usdText(c.usd)}` : 'no Sonnet call',
         clockOf(c.startedAt),
       ].join(' · ')
       const state = c.phase === 'done' || c.phase === 'failed' ? `${c.state} (${secs}s)` : c.state
@@ -2481,14 +2481,14 @@ export const register: Register = on => {
           width={width}
           marginBottom={1}
           borderStyle="round"
-          borderColor={live ? HAIKU : undefined}
+          borderColor={live ? TEAL : undefined}
           borderDimColor={!live}
           paddingX={1}
         >
           <Box flexDirection="row" justifyContent="space-between" width={cw}>
             <Box width={cw - 2}>
               <Text wrap="truncate-end">
-                <Text bold color={HAIKU}>{`${toolOf(c)}  `}</Text>
+                <Text bold color={TEAL}>{`${toolOf(c)}  `}</Text>
                 <Text bold>{cutText(c.label, cw - 14)}</Text>
               </Text>
             </Box>
@@ -2527,8 +2527,8 @@ export const register: Register = on => {
           {mascot}
           <Box flexDirection="column" flexGrow={1}>
             <Box flexDirection="row" justifyContent="space-between">
-              <Text bold color={working ? HAIKU : undefined}>
-                {working ? 'Haiku is reading' : PANE_TITLE}
+              <Text bold color={working ? TEAL : undefined}>
+                {working ? 'Sonnet is reading' : PANE_TITLE}
               </Text>
               <Button key="hide" label="Hide" dimColor onPress={() => undefined} />
             </Box>
@@ -2537,7 +2537,7 @@ export const register: Register = on => {
             </Text>
           </Box>
         </Box>
-        {list.length ? null : <Text dimColor>A card shows up here each time a big file or connector result goes to Haiku.</Text>}
+        {list.length ? null : <Text dimColor>A card shows up here each time a big file or connector result goes to Sonnet.</Text>}
         {list.map(card)}
       </Box>
     )
@@ -2565,7 +2565,7 @@ export const register: Register = on => {
       if (opened === null) return { text: `${TITLE}: the pane did not open. The reason is in ~/.claude/mods-logs/${NAME}.log.` }
       const count = cards.filter(c => c.session === sid).length
       if (!opened.isPlaced) return { text: `${TITLE}: the pane is open but not drawn yet (${opened.reason}).` }
-      return { text: `${TITLE}: pane opened with ${count} card${count === 1 ? '' : 's'} from this chat. New cards show up when Haiku reads a big file or connector result.` }
+      return { text: `${TITLE}: pane opened with ${count} card${count === 1 ? '' : 's'} from this chat. New cards show up when Sonnet reads a big file or connector result.` }
     }
     if ((verb === 'off' || verb === 'on') && what !== undefined && REMOVED.has(what)) {
       return { text: `${TITLE}: the web part was removed on 2026-11-03. Read Digest has two parts now: file and connector.` }

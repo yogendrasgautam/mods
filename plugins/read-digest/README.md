@@ -1,6 +1,6 @@
 # Read Digest
 
-Big files and big connector results are read by Haiku first. Claude gets short notes and a path to the full thing. A side pane shows each hand-off to Haiku while it happens.
+Big files and big connector results are read by Sonnet first. Claude gets short notes and a path to the full thing. A side pane shows each hand-off to Sonnet while it happens.
 
 It merges two older mods into one: Read Router (files) and Connector Reader (connector results).
 
@@ -10,7 +10,7 @@ It merges two older mods into one: Read Router (files) and Connector Reader (con
 |---|---|---|---|
 | file | Read | Any Read of a text file over about 2,000 tokens: a whole file, or a range (any start line) whose text is over the limit, however few lines it has. Also a PDF over 5 pages. See the four guards below | `[Read Digest] Notes on <path>`: notes with line numbers, written for the task in the person's last message |
 | file | Bash | A shell read (cat, head, tail, sed, awk, nl, grep, rg and the like) whose output is over about 2,000 tokens (8,000 characters) | `cat` of one file: the same notes as a Read of that file. Anything else: `[Read Digest] Notes on the output of <command>`, and the full output is saved to a file |
-| connector | any connector tool (`mcp__*`) | A result over about 4,000 tokens | `[Read Digest] <tool>`: code trims unused fields first. If it is still over about 2,000 tokens, Haiku keeps what the task needs. The full result is saved to a file and the path is given |
+| connector | any connector tool (`mcp__*`) | A result over about 4,000 tokens | `[Read Digest] <tool>`: code trims unused fields first. If it is still over about 2,000 tokens, Sonnet keeps what the task needs. The full result is saved to a file and the path is given |
 | connector | Bash | A shell read (curl of an API, jq, cat of a .json) whose output is JSON over about 2,000 tokens (8,000 characters) | The same trim and note as a connector result |
 
 Everything under the limits passes through untouched. The connector limit stays at 16,000 characters (about 4,000 tokens) on purpose; the log line for a smaller connector result says so.
@@ -39,11 +39,11 @@ The command always runs first, and only once. The mod reads the full output (fro
 There is no Grep tool in Claude Code 2.1.309. Claude greps through Bash, so the Bash part covers grep and rg.
 
 - The real tool always runs first. The one exception is a big PDF, which is read with `pdftotext` before core, and only when the permission check says the Read would run without asking.
-- Each Haiku request stays under 100k tokens, so Haiku stays at its cheap rate. Big inputs are split.
-- Paging and count fields (`page`, `per_page`, `count`, `has_next_page` and so on) are copied into the reply by code, word for word. Haiku is told never to write "page X of Y".
-- Haiku gets the person's last real request (short replies like "yes" or "go" are skipped, up to 12,000 characters, cut from the middle) and Claude's own words just before the read, as the reason. In a subagent, the subagent's prompt is the request.
+- Each Sonnet request stays under 100k tokens. Big inputs are split.
+- Paging and count fields (`page`, `per_page`, `count`, `has_next_page` and so on) are copied into the reply by code, word for word. Sonnet is told never to write "page X of Y".
+- Sonnet gets the person's last real request (short replies like "yes" or "go" are skipped, up to 12,000 characters, cut from the middle) and Claude's own words just before the read, as the reason. In a subagent, the subagent's prompt is the request.
 - Notes are kept on disk, keyed by path, change time, size and a short hash of the request. The same file for the same request reuses the notes, in this chat or a reopened one. A new request gets new notes.
-- If Haiku fails or is slow, Claude gets the normal result (for connectors, the trimmed result).
+- If Sonnet fails or is slow, Claude gets the normal result (for connectors, the trimmed result).
 - Images belong to Lean Screenshots. Image files and results with image blocks pass through.
 - Browser, app and other mods' connector tools are never touched.
 
@@ -53,25 +53,25 @@ Before v0.2, Claude often read the whole file again in pieces to check the notes
 
 - File notes say they cover the whole file and were written for this task, and that Claude does not need to read the file again to check them. Claude reads exact lines (offset and limit) only to quote exact text, or right before an Edit or Write.
 - Connector notes say the note is the answer to use. The saved file is for a field the note does not list, not for re-checking the note.
-- Re-reads get the kept notes: any read over the limit of a file that has notes for this request returns those notes, with no Haiku call. This holds for a Read with offset and limit and for a Bash print (`sed -n`, `head`, `tail`, `awk`, `nl`, `cat`). For a Bash print of one file, the mod reads the range from the command. If the file changed since the notes, it gets fresh notes.
+- Re-reads get the kept notes: any read over the limit of a file that has notes for this request returns those notes, with no Sonnet call. This holds for a Read with offset and limit and for a Bash print (`sed -n`, `head`, `tail`, `awk`, `nl`, `cat`). For a Bash print of one file, the mod reads the range from the command. If the file changed since the notes, it gets fresh notes.
 - The notes footer says that reading the file again, or 100 lines or more of it, returns the same notes, and that `/read-digest full` (typed by the person) lets the exact text through.
 - Re-read reminder: a read under the limit of 150 lines or more of a noted file passes through with one line after it. The file counts as named when the command has its full path, its path from a folder the command `cd`s into, or its path from the working folder. Quoted paths with spaces count.
 
-**Tradeoff:** if Haiku's notes are wrong, Claude is now less likely to catch it, because it no longer checks the notes against the file. The paging-field copy and the other accuracy fixes stay. For work where every value must be exact, type `/read-digest full` before the read, or `/read-digest off file`.
+**Tradeoff:** if Sonnet's notes are wrong, Claude is now less likely to catch it, because it no longer checks the notes against the file. The paging-field copy and the other accuracy fixes stay. For work where every value must be exact, type `/read-digest full` before the read, or `/read-digest off file`.
 
 ## The pane
 
-The pane is called "Haiku hand-offs". It opens by itself when a file or connector result goes to Haiku.
+The pane is called "Sonnet hand-offs". It opens by itself when a file or connector result goes to Sonnet.
 
 - One card per hand-off, newest first, for this chat only. Each card shows:
   - the tool it came from (Read, Bash or Connector) and the file name, command or tool name
   - the full path, full command or full tool name
-  - tokens before and after, the number of Haiku requests and their list price, and the time
-  - a live state: "Haiku is reading 3 parts: 1 of 3 done", then "Done" or "Haiku failed, so Claude got the plain file"
+  - tokens before and after, the number of Sonnet requests and their list price, and the time
+  - a live state: "Sonnet is reading 3 parts: 1 of 3 done", then "Done" or "Sonnet failed, so Claude got the plain file"
 - "Show the notes Claude got" opens the exact text Claude got. Only one card is open at a time.
 - "Open detail file" and "Open full result" open the files on disk.
-- The mascot is a round teal reader with glasses holding a page. It moves only while Haiku is reading. With reduced motion on, it stays still.
-- Notes reused from earlier get a card too ("No Haiku call"), but they do not open the pane.
+- The mascot is a round teal reader with glasses holding a page. It moves only while Sonnet is reading. With reduced motion on, it stays still.
+- Notes reused from earlier get a card too ("No Sonnet call"), but they do not open the pane.
 
 To hide it:
 
@@ -109,7 +109,7 @@ To turn one part off in every chat, add `"read-digest:file": false` (or `:connec
 - Notes are a summary. See the tradeoff above.
 - Pasted files and pictures are not touched.
 - `cat x.json` goes to the connector trim (`part: connector`, `tool: Bash`), not to file notes. `off connector` stops it; `off file` does not.
-- Lines over 2,000 characters are cut before Haiku reads them, as core's Read cuts them.
+- Lines over 2,000 characters are cut before Sonnet reads them, as core's Read cuts them.
 - The pane draws on the desktop app. In the terminal it shows text cards and a text face.
 - A Read of 100 lines or more of a big file right before an Edit gets notes, not text. Core still records the Read, so the Edit is allowed, but Claude must read a range under 100 lines and under 2,000 tokens (or the person types `/read-digest full`) to get the exact lines.
 - Known gap: a reader that pages in chunks of 99 lines or fewer still gets raw text past 50%. It gets one line each time that says the notes are there.
@@ -119,7 +119,7 @@ To turn one part off in every chat, add `"read-digest:file": false` (or `:connec
 ## History
 
 - v0.3.1, 2026-11-03: the edit escape checks tokens too. In the files demo, Claude read five long-line transcripts in two 76-line halves (about 7,500 tokens each) and all ten reads passed, so the demo saved 0 tokens. Now a range under 100 lines that is over 2,000 tokens gets the notes.
-- v0.3.0, 2026-11-03: the file limit dropped from 8,000 to 2,000 tokens (Bash: 8,000 characters). Every read over the limit is routed, including ranges that start past line 1. Four guards: edit escape under 100 lines, instruction files word for word, find-style grep passes, and a 50% piece counter per chat and subagent. Haiku gets the last real request (up to 12,000 characters) and Claude's reason. Notes are keyed by the request too. The ledger "before" for an over-cap connector result is the saved file, not core's preview.
+- v0.3.0, 2026-11-03: the file limit dropped from 8,000 to 2,000 tokens (Bash: 8,000 characters). Every read over the limit is routed, including ranges that start past line 1. Four guards: edit escape under 100 lines, instruction files word for word, find-style grep passes, and a 50% piece counter per chat and subagent. Sonnet gets the last real request (up to 12,000 characters) and Claude's reason. Notes are keyed by the request too. The ledger "before" for an over-cap connector result is the saved file, not core's preview.
 - v0.2.0, 2026-11-03 after the live test: a range that covers the whole file is a whole read. A re-read of 80% or more of a noted file (Read or Bash) gets the kept notes, not a reminder. Big inputs left alone get a `pass` log line with the reason. The X close hides the pane in that chat, `/read-digest pane` brings it back with every card, and the `/mods` Open file opens it.
 - v0.2.0, 2026-11-03 later the same day: the file part fires for Bash reads too (cat, sed, grep, curl and the like), with the safe list above. Bash JSON goes to the connector trim. The re-read reminder covers Bash. Pane cards and ledger lines name the tool. The line cut moved from 1,000 to 2,000 characters.
 - v0.2.0 (2026-11-03): the web part (repeat WebFetch cache) was removed. It never saved tokens in the desktop app, because each WebFetch runs in a new helper agent. Its code is archived in `~/.claude/mods-archive/input-router-web-part-2026-11-03/`, with its LICENSE. All code left here is Ben AI's own.

@@ -1,7 +1,7 @@
 {
   "name": "claude-mods",
   "owner": {
-    "name": "Ben AI"
+    "name": "Yogi AI"
   },
   "description": "Seven Claude Code mods that cut token cost, plus a /mods switchboard and a /savings pane",
   "plugins": [

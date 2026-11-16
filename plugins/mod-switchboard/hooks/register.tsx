@@ -449,7 +449,7 @@ function authorOf(v: unknown): string {
   return ''
 }
 
-const OURS = /ben ?ai|benai|claude-mods|token-saving-mods/i
+const OURS = /ben ?ai|benai|yogi ?ai|yogendrasgautam|claude-mods|token-saving-mods/i
 
 // Whose mod it is and where it came from: the known table first, then plugin.json, then the code's SPDX line.
 function originOf(plugin: Record<string, unknown>, source: string, known: Known | undefined) {

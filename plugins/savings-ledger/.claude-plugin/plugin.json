@@ -4,6 +4,7 @@
   "description": "/savings opens the Savings Ledger pane: every token the other mods saved, with today's and this chat's totals",
   "types": "./types/index.d.ts",
   "author": {
-    "name": "Ben AI"
+    "name": "Ben AI, changes by Yogi AI",
+    "url": "https://github.com/yogendrasgautam"
   }
 }
